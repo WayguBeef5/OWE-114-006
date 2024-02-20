@@ -19,7 +19,7 @@ public class NumberGuesser4 {
     private boolean isHintUsed = false;
 
     // Add this method to calculate a checksum
-    private int calculateChecksum(String data) {
+    private int calculateChecksum(String data) {   //owe 2/13/2024
         int checksum = 0;
         for (char c : data.toCharArray()) {
             checksum += (int) c;
