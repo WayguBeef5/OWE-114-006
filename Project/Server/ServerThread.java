@@ -259,13 +259,7 @@ public class ServerThread extends Thread {
     }
 
     // New command methods
-    @SuppressWarnings("unused")
-    private void sendHello() throws IOException {
-        Payload p = new Payload();
-        p.setPayloadType(PayloadType.MESSAGE);
-        p.setMessage("Hello from the the star destoyer 3000!");
-        out.writeObject(p);
-    }
+   
 
     @SuppressWarnings("unused")
     private void sendFlip() throws IOException {
