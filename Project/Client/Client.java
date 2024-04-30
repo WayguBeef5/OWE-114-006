@@ -64,14 +64,18 @@ public enum Client {
      * @param port
      * @return true if connection was successful
      */
-
-    private boolean connect(String address, int port) {
+private static IClientEvents events;
+     public boolean connect(String address, int port, String username, IClientEvents callback) {
+        clientName = username;
+        Client.events = callback;
         try {
             server = new Socket(address, port);
+            // channel to send to server
             out = new ObjectOutputStream(server.getOutputStream());
+            // channel to listen to server
             in = new ObjectInputStream(server.getInputStream());
             logger.info("Client connected");
-            listenForServerMessage();
+            listenForServerPayload();
             sendConnect();
         } catch (UnknownHostException e) {
             e.printStackTrace();
@@ -139,7 +143,7 @@ public enum Client {
             // splits on the space after connect (gives us host and port)
             // splits on : to get host as index 0 and port as index 1
             String[] parts = text.trim().replaceAll(" +", " ").split(" ")[1].split(":");
-            connect(parts[0].trim(), Integer.parseInt(parts[1].trim()));
+            connect(parts[0].trim(), Integer.parseInt(parts[1].trim()), text, null);
             return true;
         } else if (isQuit(text)) {
             isRunning = false;
@@ -219,27 +223,27 @@ public enum Client {
     }
      // Send methods
 
-    private void sendDisconnect() throws IOException {
+     void sendDisconnect() throws IOException {
         ConnectionPayload cp = new ConnectionPayload();
         cp.setPayloadType(PayloadType.DISCONNECT);
         out.writeObject(cp);
     }
 
-    private void sendCreateRoom(String roomName) throws IOException {
+    public void sendCreateRoom(String roomName) throws IOException {
         Payload p = new Payload();
         p.setPayloadType(PayloadType.CREATE_ROOM);
         p.setMessage(roomName);
         out.writeObject(p);
     }
 
-    private void sendJoinRoom(String roomName) throws IOException {
+    public void sendJoinRoom(String roomName) throws IOException {
         Payload p = new Payload();
         p.setPayloadType(PayloadType.JOIN_ROOM);
         p.setMessage(roomName);
         out.writeObject(p);
     }
 
-    private void sendListRooms(String searchString) throws IOException {
+    public void sendListRooms(String searchString) throws IOException {
         // Updated after video to use RoomResultsPayload so we can (later) use a limit
         // value
         RoomResultsPayload p = new RoomResultsPayload();
@@ -254,7 +258,7 @@ public enum Client {
         out.writeObject(p);
     }
 
-    private void sendMessage(String message) throws IOException {
+    public void sendMessage(String message) throws IOException {
         Payload p = new Payload();
         p.setPayloadType(PayloadType.MESSAGE);
         p.setMessage(message);
@@ -302,6 +306,13 @@ public enum Client {
 
     private void sendFlip() throws IOException {
         String result = Math.random() < 0.5 ? "Heads" : "Tails";
+        Payload p = new Payload();
+        p.setPayloadType(PayloadType.MESSAGE);
+        p.setMessage("Coin flip result: " + result);
+        out.writeObject(p);
+    }
+
+    private void privateMessage(Client client) {
         Payload p = new Payload();
         p.setPayloadType(PayloadType.MESSAGE);
         p.setMessage("Coin flip result: " + result);
@@ -361,7 +372,7 @@ public enum Client {
         inputThread.start();
     }
 
-    private void listenForServerMessage() {
+    private void listenForServerPayload() {
         fromServerThread = new Thread() {
             @Override
             public void run() {
@@ -401,7 +412,7 @@ public enum Client {
         }
     }
 
-    private String getClientNameFromId(long id) {
+    protected String getClientNameFromId(long id) {
         if (clientsInRoom.containsKey(id)) {
             return clientsInRoom.get(id);
         }
@@ -411,6 +422,7 @@ public enum Client {
         return "[name not found]";
     }
 
+    
     private void processPayload(Payload p) {
         String message;
         switch (p.getPayloadType()) {
@@ -422,8 +434,10 @@ public enum Client {
                 } else {
                     logger.info(TextFX.colorize("Setting client id to default", Color.RED));
                 }
+                events.onReceiveClientId(p.getClientId());
                 break;
-            case CONNECT:
+            case CONNECT:// for now connect,disconnect are all the same
+
             case DISCONNECT:
                 ConnectionPayload cp = (ConnectionPayload) p;
                 message = TextFX.colorize(String.format("*%s %s*",
@@ -434,32 +448,49 @@ public enum Client {
                 ConnectionPayload cp2 = (ConnectionPayload) p;
                 if (cp2.getPayloadType() == PayloadType.CONNECT || cp2.getPayloadType() == PayloadType.SYNC_CLIENT) {
                     addClientReference(cp2.getClientId(), cp2.getClientName());
+
                 } else if (cp2.getPayloadType() == PayloadType.DISCONNECT) {
                     removeClientReference(cp2.getClientId());
                 }
+                // TODO refactor this to avoid all these messy if condition (resulted from poor
+                // planning ahead)
+                if (cp2.getPayloadType() == PayloadType.CONNECT) {
+                    events.onClientConnect(p.getClientId(), cp2.getClientName(), p.getMessage());
+                } else if (cp2.getPayloadType() == PayloadType.DISCONNECT) {
+                    events.onClientDisconnect(p.getClientId(), cp2.getClientName(), p.getMessage());
+                } else if (cp2.getPayloadType() == PayloadType.SYNC_CLIENT) {
+                    events.onSyncClient(p.getClientId(), cp2.getClientName());
+                }
+
                 break;
             case JOIN_ROOM:
-                clientsInRoom.clear();
+                clientsInRoom.clear();// we changed a room so likely need to clear the list
+                events.onResetUserList();
                 break;
             case MESSAGE:
+
                 message = TextFX.colorize(String.format("%s: %s",
                         getClientNameFromId(p.getClientId()),
                         p.getMessage()), Color.BLUE);
                 System.out.println(message);
+                events.onMessageReceive(p.getClientId(), p.getMessage());
                 break;
             case LIST_ROOMS:
                 try {
                     RoomResultsPayload rp = (RoomResultsPayload) p;
+                    // if there's a message, print it
                     if (rp.getMessage() != null && !rp.getMessage().isBlank()) {
                         message = TextFX.colorize(rp.getMessage(), Color.RED);
                         logger.info(message);
                     }
+                    // print room names found
                     List<String> rooms = rp.getRooms();
                     System.out.println(TextFX.colorize("Room Results", Color.CYAN));
                     for (int i = 0; i < rooms.size(); i++) {
                         String msg = String.format("%s %s", (i + 1), rooms.get(i));
                         System.out.println(TextFX.colorize(msg, Color.CYAN));
                     }
+                    events.onReceiveRoomList(rp.getRooms(), rp.getMessage());
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
