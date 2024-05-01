@@ -12,4 +12,4 @@
 
 [Link to Final Project Submission](https://github.com/WayguBeef5/OWE-114-006/blob/main/Project/owe_it114-chatroom-milestone-4-2024_IT114-006-S2024.pdf)
 
-[[Embed Video Here](https://studio.youtube.com/video/QyCPKC5iOfw/edit)]
+[[Embed Video Here](https://www.youtube.com/watch?v=QyCPKC5iOfw)]
